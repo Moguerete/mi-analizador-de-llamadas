@@ -16,6 +16,8 @@ PARAMETROS_CALIDAD = {
 
 st.set_page_config(page_title="Auditor Senior Movistar", layout="wide")
 st.title("🎙️ Auditoría Avanzada: Retención y Validación")
+st.sidebar.title("📖 Guía de uso")
+st.sidebar.info("1. Sube el archivo .mp3\n2. Espera a que termine la transcripción\n3. Revisa el resumen y descarga el Excel.")
 
 @st.cache_resource
 def load_model():
