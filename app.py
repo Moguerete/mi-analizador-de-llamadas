@@ -4,84 +4,65 @@ import pandas as pd
 import os
 
 # Configuración de la interfaz
-st.set_page_config(page_title="Monitor de Calidad Movistar", layout="wide")
-st.title("🎙️ Análisis Automático de Calidad - Contact Center")
+st.set_page_config(page_title="Auditor de Saludos Movistar", layout="wide")
+st.title("🎙️ Análisis de Calidad: Verificación de Saludo")
 
-# Carga del modelo de IA (Base es el más rápido para web)
 @st.cache_resource
 def load_model():
-    return whisper.load_model("base")
+    return whisper.load_model("tiny") # Tiny es ideal para detectar saludos rápido
 
 model = load_model()
 
-# --- CARGA DE ARCHIVO ---
-uploaded_file = st.file_uploader("Sube tu llamada en formato .mp3", type=["mp3"])
+uploaded_file = st.file_uploader("Sube tu llamada .mp3", type=["mp3"])
 
 if uploaded_file is not None:
-    with st.spinner("Analizando llamada... esto tardará solo unos segundos"):
-        # Guardar temporalmente el audio para que la IA lo lea
+    with st.spinner("Escuchando el saludo y analizando..."):
         with open("temp_audio.mp3", "wb") as f:
             f.write(uploaded_file.getbuffer())
 
-        # 1. Transcripción (La IA escucha y escribe)
+        # 1. Transcripción
         result = model.transcribe("temp_audio.mp3", language="es")
         text_full = result['text']
         segments = result['segments']
 
-        # 2. Lógica de Verificación de Calidad
-        saludo_keywords = ["mejor red movil", "señal y cobertura", "atención preferencial", "movistar total"]
-        saludo_detectado = any(k in text_full.lower() for k in saludo_keywords)
+        # 2. EXTRACCIÓN DEL SALUDO LITERAL
+        # Tomamos los primeros 2 o 3 segmentos de la llamada (donde ocurre el saludo)
+        saludo_literal = ""
+        for i, s in enumerate(segments):
+            if i < 3: # El saludo siempre está en los primeros 3 bloques de habla
+                saludo_literal += s['text'] + " "
         
-        datos_keywords = ["cédula", "direccion", "celular", "motivo de su llamada"]
-        datos_validados = [k for k in datos_keywords if k in text_full.lower()]
+        # 3. VERIFICACIÓN DEL PROTOCOLO
+        # Definimos las frases clave que SIEMPRE deben estar
+        keywords_obligatorias = ["mejor red movil", "señal y cobertura", "atención preferencial", "movistar total"]
         
-        holds = []
-        silencios = []
-        last_end = 0
-        for s in segments:
-            if "prime video" in s['text'].lower() or "disney" in s['text'].lower():
-                holds.append(f"{s['start']:.1f}s a {s['end']:.1f}s")
-            
-            if (s['start'] - last_end) > 3.0:
-                silencios.append(f"{last_end:.1f}s a {s['start']:.1f}s")
-            last_end = s['end']
+        # Contamos cuántas de las frases obligatorias dijo
+        aciertos = [k for k in keywords_obligatorias if k in saludo_literal.lower()]
+        cumple_protocolo = len(aciertos) >= 3 # Cumple si dice al menos 3 de las frases
 
-        encuesta = "Sí" if any(k in text_full.lower() for k in ["encuesta", "transferir", "calificar"]) else "No"
-
-        # --- MOSTRAR RESULTADOS EN LA WEB ---
-        col1, col2 = st.columns(2)
-        with col1:
-            st.subheader("✅ Evaluación de Calidad")
-            st.write(f"**Saludo Correcto:** {'Si' if saludo_detectado else 'No'}")
-            st.write(f"**Datos Validados:** {', '.join(datos_validados) if datos_validados else 'Ninguno'}")
-            st.write(f"**Mención Encuesta:** {encuesta}")
+        # --- MOSTRAR RESULTADOS ---
+        st.divider()
+        if cumple_protocolo:
+            st.success(f"✅ **SALUDO CORRECTO**")
+        else:
+            st.error(f"❌ **SALUDO INCORRECTO** (Faltaron frases del protocolo)")
         
-        with col2:
-            st.subheader("⏳ Tiempos Detectados")
-            st.write(f"**Tiempos en Hold:** {', '.join(holds) if holds else 'No se detectó hold'}")
-            st.write(f"**Silencios Incómodos:** {', '.join(silencios) if silencios else 'Sin silencios largos'}")
+        st.info(f"**Lo que el agente dijo exactamente:**\n\n\"{saludo_literal.strip()}\"")
 
-        # --- CREACIÓN DEL ARCHIVO EXCEL ---
+        # --- EXCEL DETALLADO ---
         df = pd.DataFrame({
-            "Parámetro": ["Saludo Protocolario", "Validación de Datos", "Tiempos Hold", "Silencios Incómodos", "Encuesta", "Lo que dijo el agente"],
+            "Métrica de Calidad": ["Estado del Saludo", "Saludo Literal (Lo que dijo)", "Motivo detectado", "Encuesta", "Hold/Espera"],
             "Resultado": [
-                "CORRECTO" if saludo_detectado else "INCORRECTO",
-                ", ".join(datos_validados),
-                ", ".join(holds),
-                ", ".join(silencios),
-                encuesta,
-                text_full[:400]
+                "CORRECTO" if cumple_protocolo else "INCORRECTO",
+                saludo_literal.strip(), # Aquí verás exactamente qué dijo el agente
+                text_full[text_full.lower().find("motivo"):text_full.lower().find("motivo")+100] if "motivo" in text_full.lower() else "No detectado",
+                "Sí" if "encuesta" in text_full.lower() else "No",
+                "Detectado" if "disney" in text_full.lower() or "prime" in text_full.lower() else "No detectado"
             ]
         })
-        
+
         st.divider()
-        st.subheader("📥 Descarga tu Reporte")
-        excel_name = "resultado_calidad.xlsx"
+        excel_name = f"Auditoria_{uploaded_file.name}.xlsx"
         df.to_excel(excel_name, index=False)
         with open(excel_name, "rb") as file:
-            st.download_button(
-                label="Descargar Reporte en Excel",
-                data=file,
-                file_name=f"Analisis_{uploaded_file.name}.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )
+            st.download_button(label="📥 Descargar Reporte de Saludo", data=file, file_name=excel_name)
