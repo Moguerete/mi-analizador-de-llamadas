@@ -29,29 +29,23 @@ if uploaded_file is not None:
         segments = result['segments']
 
         # 2. Lógica de Verificación de Calidad
-        # Saludo exacto solicitado
         saludo_keywords = ["mejor red movil", "señal y cobertura", "atención preferencial", "movistar total"]
         saludo_detectado = any(k in text_full.lower() for k in saludo_keywords)
         
-        # Validación de Datos
         datos_keywords = ["cédula", "direccion", "celular", "motivo de su llamada"]
         datos_validados = [k for k in datos_keywords if k in text_full.lower()]
         
-        # Detección de Hold (Publicidad Disney/Prime) y Silencios
         holds = []
         silencios = []
         last_end = 0
         for s in segments:
-            # Si menciona beneficios en el hold
             if "prime video" in s['text'].lower() or "disney" in s['text'].lower():
                 holds.append(f"{s['start']:.1f}s a {s['end']:.1f}s")
             
-            # Silencios mayores a 3 segundos
             if (s['start'] - last_end) > 3.0:
                 silencios.append(f"{last_end:.1f}s a {s['start']:.1f}s")
             last_end = s['end']
 
-        # Verificación de Encuesta
         encuesta = "Sí" if any(k in text_full.lower() for k in ["encuesta", "transferir", "calificar"]) else "No"
 
         # --- MOSTRAR RESULTADOS EN LA WEB ---
@@ -69,18 +63,25 @@ if uploaded_file is not None:
 
         # --- CREACIÓN DEL ARCHIVO EXCEL ---
         df = pd.DataFrame({
-            "Parámetro": ["Saludo Protocolario", "Validación de Datos", "Tiempos Hold", "Silencios Incómodos", "Encuesta", "Lo que dijo el agente (Inicio)"],
+            "Parámetro": ["Saludo Protocolario", "Validación de Datos", "Tiempos Hold", "Silencios Incómodos", "Encuesta", "Lo que dijo el agente"],
             "Resultado": [
                 "CORRECTO" if saludo_detectado else "INCORRECTO",
                 ", ".join(datos_validados),
                 ", ".join(holds),
                 ", ".join(silencios),
                 encuesta,
-                text_full[:400] # Primeros 400 caracteres para el reporte
+                text_full[:400]
             ]
         })
         
         st.divider()
         st.subheader("📥 Descarga tu Reporte")
         excel_name = "resultado_calidad.xlsx"
-        df.to_excel(excel_name,
+        df.to_excel(excel_name, index=False)
+        with open(excel_name, "rb") as file:
+            st.download_button(
+                label="Descargar Reporte en Excel",
+                data=file,
+                file_name=f"Analisis_{uploaded_file.name}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
